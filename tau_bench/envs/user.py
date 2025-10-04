@@ -2,9 +2,26 @@
 
 import abc
 import enum
+import time
 from litellm import completion
 
 from typing import Optional, List, Dict, Any, Union
+
+
+def _completion_with_retry(
+    model: str, custom_llm_provider: str, messages: List[Dict[str, Any]], max_retries: int = 15
+):
+    """Helper function to retry completion calls with exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            return completion(
+                model=model, custom_llm_provider=custom_llm_provider, messages=messages
+            )
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            # Exponential backoff: wait 1.5^attempt seconds
+            time.sleep(1.5 ** attempt)
 
 
 class BaseUserSimulationEnv(abc.ABC):
@@ -44,7 +61,7 @@ class LLMUserSimulationEnv(BaseUserSimulationEnv):
         self.reset()
 
     def generate_next_message(self, messages: List[Dict[str, Any]]) -> str:
-        res = completion(
+        res = _completion_with_retry(
             model=self.model, custom_llm_provider=self.provider, messages=messages
         )
         message = res.choices[0].message
@@ -115,7 +132,7 @@ User Response:
 <the user response (this will be parsed and sent to the agent)>"""
 
     def generate_next_message(self, messages: List[Dict[str, Any]]) -> str:
-        res = completion(
+        res = _completion_with_retry(
             model=self.model, custom_llm_provider=self.provider, messages=messages
         )
         message = res.choices[0].message
@@ -164,7 +181,7 @@ class VerifyUserSimulationEnv(LLMUserSimulationEnv):
         attempts = 0
         cur_message = None
         while attempts < self.max_attempts:
-            res = completion(
+            res = _completion_with_retry(
                 model=self.model, custom_llm_provider=self.provider, messages=messages
             )
             cur_message = res.choices[0].message
@@ -224,7 +241,7 @@ Your answer will be parsed, so do not include any other text than the classifica
 -----
 
 Classification:"""
-    res = completion(
+    res = _completion_with_retry(
         model=model,
         custom_llm_provider=provider,
         messages=[{"role": "user", "content": prompt}],
@@ -258,7 +275,7 @@ Reflection:
 
 Response:
 <the response (this will be parsed and sent to the agent)>"""
-    res = completion(
+    res = _completion_with_retry(
         model=model,
         custom_llm_provider=provider,
         messages=[{"role": "user", "content": prompt}],
